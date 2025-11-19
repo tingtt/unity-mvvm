@@ -13,7 +13,8 @@ PROJECT_PATH ?= $(CURDIR)
 SOLUTION_PATH ?= unity-mvvm.slnx
 
 # Execute Tool Method
-EXECUTE_METHOD ?= Refresh.Run
+EXECUTE_METHOD_REFRESH ?= Refresh.Run
+EXECUTE_METHOD_GENERATE ?= Generate.Run
 
 # (Optional) Additional arguments to pass to Unity
 UNITY_EXTRA_ARGS ?=
@@ -28,8 +29,13 @@ ifeq ($(OS),Windows_NT)
   REFRESH_CMD = & '$(UNITY_PATH)' `
     -batchmode -quit `
     -projectPath '$(PROJECT_PATH)' `
-    -executeMethod $(EXECUTE_METHOD) `
-    -nographics -logFile - $(UNITY_EXTRA_ARGS)
+    -executeMethod $(EXECUTE_METHOD_REFRESH) `
+    -nographics -ignorecompilererrors -logFile - $(UNITY_EXTRA_ARGS)
+  GENERATE_CMD = & '$(UNITY_PATH)' `
+    -batchmode -quit `
+    -projectPath '$(PROJECT_PATH)' `
+    -executeMethod $(EXECUTE_METHOD_GENERATE) `
+    -nographics -ignorecompilererrors -logFile - $(UNITY_EXTRA_ARGS)
 else
   # macOS / Linux
   SHELL := /bin/bash
@@ -39,19 +45,47 @@ else
   REFRESH_CMD = $(UNITY_PATH) \
     -batchmode -quit \
     -projectPath "$(PROJECT_PATH)" \
-    -executeMethod "$(EXECUTE_METHOD)" \
+    -executeMethod "$(EXECUTE_METHOD_REFRESH)" \
+    -nographics -logFile - $(UNITY_EXTRA_ARGS)
+  GENERATE_CMD = $(UNITY_PATH) \
+    -batchmode -quit \
+    -projectPath "$(PROJECT_PATH)" \
+    -executeMethod "$(EXECUTE_METHOD_GENERATE)" \
     -nographics -logFile - $(UNITY_EXTRA_ARGS)
 endif
 
+ifneq (,$(findstring xterm,${TERM}))
+	BLACK        := $(shell tput -Txterm setaf 0)
+	RED          := $(shell tput -Txterm setaf 1)
+	GREEN        := $(shell tput -Txterm setaf 2)
+	YELLOW       := $(shell tput -Txterm setaf 3)
+	LIGHTPURPLE  := $(shell tput -Txterm setaf 4)
+	PURPLE       := $(shell tput -Txterm setaf 5)
+	BLUE         := $(shell tput -Txterm setaf 6)
+	WHITE        := $(shell tput -Txterm setaf 7)
+	RESET := $(shell tput -Txterm sgr0)
+else
+	BLACK        := ""
+	RED          := ""
+	GREEN        := ""
+	YELLOW       := ""
+	LIGHTPURPLE  := ""
+	PURPLE       := ""
+	BLUE         := ""
+	WHITE        := ""
+	RESET        := ""
+endif
+
 # ===== Targets =====
-.PHONY: help setup fmt lint sync sync-quiet which-unity
+.PHONY: help setup fmt lint sync sync-quiet which-unity gen
 
 help:
 	@echo "Targets:"
 	@echo "  make setup        Setup git hooks path to .githooks"
 	@echo "  make fmt          Format C# code using dotnet format"
 	@echo "  make lint         Check C# code formatting using dotnet format"
-	@echo "  make sync         Run Unity headless and call $(EXECUTE_METHOD) to force .meta generation"
+	@echo "  make sync         Run Unity headless and call $(EXECUTE_METHOD_REFRESH) to force .meta generation"
+	@echo "  make gen          Run Unity headless and call $(EXECUTE_METHOD_GENERATE) to generate codes"
 	@echo "  make sync-quiet   Same, but suppress Unity log output"
 	@echo "  make which-unity     Print resolved Unity executable path"
 	@echo ""
@@ -61,7 +95,8 @@ help:
 	@echo "  UNITY_PATH_WIN  (default: $(UNITY_PATH_WIN))"
 	@echo "  PROJECT_PATH    (default: $(PROJECT_PATH))"
 	@echo "  SOLUTION_PATH    (default: $(SOLUTION_PATH))"
-	@echo "  EXECUTE_METHOD  (default: $(EXECUTE_METHOD))"
+	@echo "  EXECUTE_METHOD_REFRESH  (default: $(EXECUTE_METHOD_REFRESH))"
+	@echo "  EXECUTE_METHOD_GENERATE  (default: $(EXECUTE_METHOD_GENERATE))"
 	@echo "  UNITY_EXTRA_ARGS (default: '$(UNITY_EXTRA_ARGS)')"
 
 setup:
@@ -99,3 +134,29 @@ ifeq ($(OS),Windows_NT)
 else
 	$(REFRESH_CMD) >/dev/null 2>&1
 endif
+
+gen: which-unity
+	@echo "Refreshing Asset Database for: $(PROJECT_PATH)"
+	@output=$$($(GENERATE_CMD) 2>&1); \
+	echo "$$output"; \
+	if echo "$$output" | grep -q "Multiple Unity instances cannot open the same project"; then \
+		echo "Unity already running — treating as success."; \
+		exit 1; \
+	elif echo "$$output" | grep -q "Script Compilation Error"; then \
+		make echo_red TEXT="Unity reported an compile error."; \
+		echo "Please fix compile error or stash changed scripts outside Editor."; \
+		echo ""; \
+		echo "To proceed, temporarily stash all non-Editor C# scripts:"; \
+		echo "	git stash push -u -m \"stash non-Editor C# scripts\" -- \$$(ls Assets/**/*.(cs|meta) | grep -v 'Assets/Editor/')" ; \
+		echo "	make gen" ; \
+		echo "	git stash pop" ; \
+		echo ""; \
+		exit 1; \
+	fi
+	@make sync
+
+.PHONY: echo_red
+
+TEXT	?= Error: something went wrong.
+echo_red:
+	@echo "${RED}${TEXT}${RESET}"
