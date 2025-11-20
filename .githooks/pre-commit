@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Configuration ---
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+STASH_CREATED=0
+STASH_MSG="pre-commit-temp-$(date +%s)"
+
+# --- Check if stashing is needed ---
+# Check for unstaged changes or untracked files
+has_unstaged() {
+  ! git diff --quiet
+}
+has_untracked() {
+  test -n "$(git ls-files --others --exclude-standard)"
+}
+
+if has_unstaged || has_untracked; then
+  echo "[pre-commit] stashing unstaged/untracked changes..."
+  # -k: keep index (staged changes remain)  -u: include untracked files
+  # Use stash message for later reference
+  git stash push -k -u -m "$STASH_MSG" >/dev/null
+  STASH_CREATED=1
+fi
+
+# --- Restore stash on failure (safety net) ---
+cleanup_on_error() {
+  exit_code=$?
+  if [[ $exit_code -ne 0 && $STASH_CREATED -eq 1 ]]; then
+    echo "[pre-commit] make failed, restoring stash..."
+    # --index: restore index state if possible
+    git stash pop --index -q || true
+  fi
+  exit $exit_code
+}
+trap cleanup_on_error EXIT
+# If execution fails below commands, trap will restore stash and abort
+
+# --- Main process: run make sync ---
+echo "[pre-commit] running: make sync"
+make sync
+
+# --- Re-stage changes made by make fmt/sync (recommended) ---
+echo "[pre-commit] re-staging formatted/synced changes..."
+git add -A
+
+# --- Restore stash on successful completion ---
+if [[ $STASH_CREATED -eq 1 ]]; then
+  echo "[pre-commit] restoring stash..."
+  git stash pop --index -q || {
+    echo "[pre-commit] WARNING: stash pop had conflicts. Resolve them before committing."
+    # Fail if conflicts occur, let user resolve them
+    exit 1
+  }
+fi
+
+# Clear trap since stash is already restored
+trap - EXIT
+exit 0
