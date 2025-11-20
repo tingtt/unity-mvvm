@@ -9,6 +9,9 @@ UNITY_PATH_WIN ?= C:\Program Files\Unity\Hub\Editor\$(UNITY_VERSION)\Editor\Unit
 # Project path
 PROJECT_PATH ?= $(CURDIR)
 
+# Solution path (for dotnet format)
+SOLUTION_PATH ?= unity-mvvm.slnx
+
 # Execute Tool Method
 EXECUTE_METHOD ?= Refresh.Run
 
@@ -41,11 +44,13 @@ else
 endif
 
 # ===== Targets =====
-.PHONY: help setup sync sync-quiet which-unity
+.PHONY: help setup fmt lint sync sync-quiet which-unity
 
 help:
 	@echo "Targets:"
 	@echo "  make setup        Setup git hooks path to .githooks"
+	@echo "  make fmt          Format C# code using dotnet format"
+	@echo "  make lint         Check C# code formatting using dotnet format"
 	@echo "  make sync         Run Unity headless and call $(EXECUTE_METHOD) to force .meta generation"
 	@echo "  make sync-quiet   Same, but suppress Unity log output"
 	@echo "  make which-unity     Print resolved Unity executable path"
@@ -55,6 +60,7 @@ help:
 	@echo "  UNITY_PATH_MAC  (default: $(UNITY_PATH_MAC))"
 	@echo "  UNITY_PATH_WIN  (default: $(UNITY_PATH_WIN))"
 	@echo "  PROJECT_PATH    (default: $(PROJECT_PATH))"
+	@echo "  SOLUTION_PATH    (default: $(SOLUTION_PATH))"
 	@echo "  EXECUTE_METHOD  (default: $(EXECUTE_METHOD))"
 	@echo "  UNITY_EXTRA_ARGS (default: '$(UNITY_EXTRA_ARGS)')"
 
@@ -62,6 +68,16 @@ setup:
 	@echo "Setting up git hooks path to .githooks"
 	git config core.hooksPath .githooks
 	@echo "Setup completed."
+
+fmt:
+	@echo "Formatting C# code..."
+	dotnet format $(SOLUTION_PATH) --severity error
+	@echo "Code formatting completed."
+
+lint:
+	@echo "Checking C# code formatting..."
+	dotnet format $(SOLUTION_PATH) --severity warn --verify-no-changes
+	@echo "Code formatting check completed."
 
 which-unity:
 	@echo "Using Unity: $(UNITY_PATH)"

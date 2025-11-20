@@ -38,7 +38,13 @@ cleanup_on_error() {
 trap cleanup_on_error EXIT
 # If execution fails below commands, trap will restore stash and abort
 
-# --- Main process: run make sync ---
+# --- Main process: run make fmt, lint & sync ---
+echo "[pre-commit] running: make fmt"
+make fmt
+
+echo "[pre-commit] running: make lint"
+make lint
+
 echo "[pre-commit] running: make sync"
 make sync
 
