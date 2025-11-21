@@ -122,6 +122,37 @@ Components are detected by parsing:
 
 Each detected component gets its own nested class under `GameObject.<Name>.Component.<ComponentName>` with a type-safe `Get()` method that returns the specific component type.
 
+**PrefabInstance Support:**
+
+The generator fully supports PrefabInstances in Unity scenes, treating them as regular GameObjects in the hierarchy:
+
+- **Virtual GameObject IDs**: PrefabInstances are assigned synthetic IDs (`prefab_<id>`) to enable hierarchy tracking
+- **Parent-child relationships**: PrefabInstances respect `m_TransformParent` references to appear under correct parent GameObjects
+- **Component extraction**: Components are loaded from both sources:
+  - **Scene overrides**: Components added or modified in the scene (`m_AddedComponents`)
+  - **Prefab definitions**: Original components from the prefab file itself
+- **GUID-based resolution**: Prefab files are located by searching `.meta` files for matching GUIDs
+- **Stripped GameObject mapping**: Stripped GameObjects and components from PrefabInstances are mapped to virtual IDs
+
+When a PrefabInstance is detected in the scene:
+
+1. The generator extracts the prefab GUID from the `PrefabInstance` block
+2. Searches all `.meta` files in the Assets directory to locate the actual prefab file
+3. Parses the prefab YAML to extract components from the root GameObject
+4. Merges prefab components with any scene-side modifications
+5. Deduplicates components to avoid duplicate accessors
+
+This allows seamless access to PrefabInstance GameObjects and their components, even when all components come purely from the prefab with no scene modifications:
+
+```csharp
+// Access PrefabInstance GameObject (same as regular GameObject)
+GameObject background = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.Get()
+
+// Access components from prefab (Image, Button, etc.)
+Image backgroundImage = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.Component.Image.Get()
+Button backgroundButton = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.Component.Button.Get()
+```
+
 **Special handling:**
 
 - **Duplicate names**: Appends numeric suffixes (e.g., `Canvas`, `Canvas1`, `Canvas2`)
@@ -135,14 +166,20 @@ The parser uses regex patterns to extract YAML blocks:
 // Match GameObject blocks: --- !u!1 &<id>
 var gameObjectPattern = @"--- !u!1 &(\d+)\s+GameObject:.*?m_Name:\s*(.+?)$"
 
+// Match PrefabInstance blocks with GUID and parent transform
+var prefabInstancePattern = @"--- !u!1001 &(\d+)\s+PrefabInstance:.*?m_TransformParent: \{fileID: (\d+)\}.*?propertyPath: m_Name\s+value: (.+?)\s+.*?guid: ([0-9a-f]+),"
+
+// Match stripped GameObjects from PrefabInstances
+var strippedGameObjectPattern = @"--- !u!1 &(\d+) stripped\s+GameObject:.*?m_PrefabInstance: \{fileID: (\d+)\}"
+
 // Match Transform/RectTransform blocks: --- !u!224 or --- !u!4 &<id>
 var transformBlockPattern = @"--- !u!(?:224|4) &(\d+)\s+(?:RectTransform|Transform):.*?(?=^--- |\z)"
 
-// Match MonoBehaviour components with editor class identifier
-var monoBehaviourPattern = @"--- !u!114 &\d+\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$"
+// Match MonoBehaviour components (including stripped) with editor class identifier
+var monoBehaviourPattern = @"--- !u!114 &\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$"
 ```
 
-The multiline regex with lookahead ensures all blocks are captured, including those at the end of the file.
+The multiline regex with lookahead ensures all blocks are captured, including those at the end of the file. PrefabInstance-specific patterns enable seamless integration of prefab content into the generated accessor hierarchy.
 
 ## [`AudioCacheController`](../Assets/App/Library/AudioCacheController.cs)
 

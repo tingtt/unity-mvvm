@@ -163,6 +163,61 @@ public static partial class AssetAccessorGenerator
 
       var content = File.ReadAllText(scenePath);
 
+      // Parse PrefabInstances to extract GameObject names, parent transforms, and GUIDs
+      var prefabInstancePattern = new Regex(
+        @"--- !u!1001 &(\d+)\s+PrefabInstance:.*?m_TransformParent: \{fileID: (\d+)\}.*?propertyPath: m_Name\s+value: (.+?)\s+.*?guid: ([0-9a-f]+),",
+        RegexOptions.Singleline
+      );
+      var prefabMatches = prefabInstancePattern.Matches(content);
+      var prefabInstances = new Dictionary<string, (string parentTransformId, string name, string guid)>();
+
+      foreach (Match match in prefabMatches)
+      {
+        var prefabId = match.Groups[1].Value;
+        var parentTransformId = match.Groups[2].Value;
+        var name = match.Groups[3].Value.Trim();
+        var guid = match.Groups[4].Value.Trim();
+        prefabInstances[prefabId] = (parentTransformId, name, guid);
+      }
+
+      // Parse stripped transforms from PrefabInstances
+      // Pattern: --- !u!224 &<transformId> stripped\nRectTransform:...\n  m_PrefabInstance: {fileID: <prefabId>}
+      var strippedTransformPattern = new Regex(
+        @"--- !u!(?:224|4) &(\d+) stripped\s+(?:RectTransform|Transform):.*?m_PrefabInstance: \{fileID: (\d+)\}",
+        RegexOptions.Singleline
+      );
+      var strippedMatches = strippedTransformPattern.Matches(content);
+      var prefabTransformToPrefabId = new Dictionary<string, string>();
+
+      foreach (Match match in strippedMatches)
+      {
+        var transformId = match.Groups[1].Value;
+        var prefabId = match.Groups[2].Value;
+        if (prefabInstances.ContainsKey(prefabId))
+        {
+          prefabTransformToPrefabId[transformId] = prefabId;
+        }
+      }
+
+      // Parse stripped GameObjects from PrefabInstances
+      // Pattern: --- !u!1 &<gameObjectId> stripped\nGameObject:...\n  m_PrefabInstance: {fileID: <prefabId>}
+      var strippedGameObjectPattern = new Regex(
+        @"--- !u!1 &(\d+) stripped\s+GameObject:.*?m_PrefabInstance: \{fileID: (\d+)\}",
+        RegexOptions.Singleline
+      );
+      var strippedGameObjectMatches = strippedGameObjectPattern.Matches(content);
+      var strippedGameObjectToPrefabId = new Dictionary<string, string>();
+
+      foreach (Match match in strippedGameObjectMatches)
+      {
+        var gameObjectId = match.Groups[1].Value;
+        var prefabId = match.Groups[2].Value;
+        if (prefabInstances.ContainsKey(prefabId))
+        {
+          strippedGameObjectToPrefabId[gameObjectId] = prefabId;
+        }
+      }
+
       // Parse GameObjects from YAML
       // Pattern: --- !u!1 &<id>\nGameObject:\n...\n  m_Name: <name>
       var gameObjectPattern = new Regex(@"--- !u!1 &(\d+)\s+GameObject:.*?m_Name:\s*(.+?)$", RegexOptions.Singleline | RegexOptions.Multiline);
@@ -182,7 +237,26 @@ public static partial class AssetAccessorGenerator
         {
           Id = id,
           Name = name,
-          ParentId = null
+          ParentId = null,
+          IsPrefabInstance = false,
+          PrefabGuid = null
+        });
+      }
+
+      // Add PrefabInstance GameObjects with virtual IDs
+      foreach (var kvp in prefabInstances)
+      {
+        var prefabId = kvp.Key;
+        var (parentTransformId, name, guid) = kvp.Value;
+
+        gameObjects.Add(new GameObjectInfo
+        {
+          Id = $"prefab_{prefabId}",
+          Name = name,
+          ParentId = null, // Will be resolved later
+          IsPrefabInstance = true,
+          PrefabGuid = guid,
+          PrefabParentTransformId = parentTransformId
         });
       }
 
@@ -238,20 +312,37 @@ public static partial class AssetAccessorGenerator
         }
       }
 
+      // Resolve PrefabInstance parent relationships
+      foreach (var go in gameObjects.Where(g => g.IsPrefabInstance))
+      {
+        var parentTransformId = go.PrefabParentTransformId;
+        if (!string.IsNullOrEmpty(parentTransformId) && parentTransformId != "0")
+        {
+          if (transformToGameObject.TryGetValue(parentTransformId, out var parentGameObjectId))
+          {
+            go.ParentId = parentGameObjectId;
+          }
+        }
+      }
+
       // Parse components for each GameObject
-      ParseComponentsForGameObjects(content, gameObjects);
+      ParseComponentsForGameObjects(content, gameObjects, strippedGameObjectToPrefabId);
+
+      // Load components from prefab files for PrefabInstances
+      LoadPrefabComponents(gameObjects, Path.GetDirectoryName(scenePath));
 
       return gameObjects;
     }
 
-    private static void ParseComponentsForGameObjects(string content, List<GameObjectInfo> gameObjects)
+    private static void ParseComponentsForGameObjects(string content, List<GameObjectInfo> gameObjects, Dictionary<string, string> strippedGameObjectToPrefabId)
     {
       // Create a dictionary for quick lookup
       var gameObjectDict = gameObjects.ToDictionary(go => go.Id);
 
       // Parse MonoBehaviour components (UI components like Image, Button, Text, etc.)
+      // Match both regular and stripped MonoBehaviour components
       var monoBehaviourPattern = new Regex(
-        @"--- !u!114 &\d+\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
+        @"--- !u!114 &\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
         RegexOptions.Singleline | RegexOptions.Multiline
       );
       var monoBehaviourMatches = monoBehaviourPattern.Matches(content);
@@ -261,7 +352,18 @@ public static partial class AssetAccessorGenerator
         var gameObjectId = match.Groups[1].Value;
         var editorClassIdentifier = match.Groups[2].Value.Trim();
 
-        if (gameObjectDict.TryGetValue(gameObjectId, out var go) && !string.IsNullOrEmpty(editorClassIdentifier))
+        // Try to find the GameObject directly, or map from stripped GameObject ID to PrefabInstance virtual ID
+        if (!gameObjectDict.TryGetValue(gameObjectId, out GameObjectInfo go))
+        {
+          // This might be a stripped GameObject from a PrefabInstance, try to map it to the virtual GameObject ID
+          if (strippedGameObjectToPrefabId.TryGetValue(gameObjectId, out var prefabId))
+          {
+            var virtualId = $"prefab_{prefabId}";
+            _ = gameObjectDict.TryGetValue(virtualId, out go);
+          }
+        }
+
+        if (go != null && !string.IsNullOrEmpty(editorClassIdentifier))
         {
           var componentType = ParseComponentType(editorClassIdentifier);
           if (!string.IsNullOrEmpty(componentType) && IsUnityOrKnownComponent(componentType))
@@ -277,17 +379,17 @@ public static partial class AssetAccessorGenerator
       }
 
       // Parse other common component types
-      ParseStandardComponents(content, gameObjectDict, "!u!223", "UnityEngine.Canvas", "Canvas");
-      ParseStandardComponents(content, gameObjectDict, "!u!222", "UnityEngine.CanvasRenderer", "CanvasRenderer");
-      ParseStandardComponents(content, gameObjectDict, "!u!224", "UnityEngine.RectTransform", "RectTransform");
-      ParseStandardComponents(content, gameObjectDict, "!u!4", "UnityEngine.Transform", "Transform");
-      ParseStandardComponents(content, gameObjectDict, "!u!20", "UnityEngine.Camera", "Camera");
-      ParseStandardComponents(content, gameObjectDict, "!u!81", "UnityEngine.AudioListener", "AudioListener");
-      ParseStandardComponents(content, gameObjectDict, "!u!108", "UnityEngine.Light", "Light");
-      ParseStandardComponents(content, gameObjectDict, "!u!114", "UnityEngine.EventSystems.EventSystem", "EventSystem");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!223", "UnityEngine.Canvas", "Canvas");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!222", "UnityEngine.CanvasRenderer", "CanvasRenderer");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!224", "UnityEngine.RectTransform", "RectTransform");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!4", "UnityEngine.Transform", "Transform");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!20", "UnityEngine.Camera", "Camera");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!81", "UnityEngine.AudioListener", "AudioListener");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!108", "UnityEngine.Light", "Light");
+      ParseStandardComponents(content, gameObjectDict, strippedGameObjectToPrefabId, "!u!114", "UnityEngine.EventSystems.EventSystem", "EventSystem");
     }
 
-    private static void ParseStandardComponents(string content, Dictionary<string, GameObjectInfo> gameObjectDict, string classId, string componentType, string componentName)
+    private static void ParseStandardComponents(string content, Dictionary<string, GameObjectInfo> gameObjectDict, Dictionary<string, string> strippedGameObjectToPrefabId, string classId, string componentType, string componentName)
     {
       var pattern = new Regex(
         $@"--- {Regex.Escape(classId)} &\d+\s+{Regex.Escape(componentName)}:.*?m_GameObject:\s*\{{fileID:\s*(\d+)\}}",
@@ -298,7 +400,19 @@ public static partial class AssetAccessorGenerator
       foreach (Match match in matches)
       {
         var gameObjectId = match.Groups[1].Value;
-        if (gameObjectDict.TryGetValue(gameObjectId, out var go))
+
+        // Try to find the GameObject directly, or map from stripped GameObject ID to PrefabInstance virtual ID
+        if (!gameObjectDict.TryGetValue(gameObjectId, out GameObjectInfo go))
+        {
+          // This might be a stripped GameObject from a PrefabInstance, try to map it to the virtual GameObject ID
+          if (strippedGameObjectToPrefabId.TryGetValue(gameObjectId, out var prefabId))
+          {
+            var virtualId = $"prefab_{prefabId}";
+            _ = gameObjectDict.TryGetValue(virtualId, out go);
+          }
+        }
+
+        if (go != null)
         {
           var safeName = MakeSafeName(componentType.Split('.').Last());
           // Avoid duplicates
@@ -356,6 +470,136 @@ public static partial class AssetAccessorGenerator
             componentType.StartsWith("UnityEngine.InputSystem."); // Input System
     }
 
+    private static void LoadPrefabComponents(List<GameObjectInfo> gameObjects, string sceneDir)
+    {
+      // Get the Assets directory path
+      var assetsPath = Path.GetFullPath(Path.Combine(sceneDir, "..", ".."));
+
+      foreach (var go in gameObjects.Where(g => g.IsPrefabInstance && !string.IsNullOrEmpty(g.PrefabGuid)))
+      {
+        // Find prefab file by GUID
+        var prefabPath = FindAssetPathByGuid(go.PrefabGuid, assetsPath);
+        if (string.IsNullOrEmpty(prefabPath) || !File.Exists(prefabPath))
+        {
+          continue;
+        }
+
+        // Parse prefab file to extract components
+        var prefabContent = File.ReadAllText(prefabPath);
+        var prefabComponents = ParsePrefabComponents(prefabContent);
+
+        // Add components that aren't already in the list (from scene overrides)
+        foreach (var component in prefabComponents)
+        {
+          if (!go.Components.Any(c => c.TypeFullName == component.TypeFullName))
+          {
+            go.Components.Add(component);
+          }
+        }
+      }
+    }
+
+    private static string FindAssetPathByGuid(string guid, string assetsPath)
+    {
+      // Search for .meta files containing the GUID
+      var metaFiles = Directory.GetFiles(assetsPath, "*.meta", SearchOption.AllDirectories);
+
+      foreach (var metaFile in metaFiles)
+      {
+        var metaContent = File.ReadAllText(metaFile);
+        if (metaContent.Contains($"guid: {guid}"))
+        {
+          // Return the actual file path (remove .meta extension)
+          var assetPath = metaFile[..^5];
+          if (File.Exists(assetPath))
+          {
+            return assetPath;
+          }
+        }
+      }
+
+      return null;
+    }
+
+    private static List<ComponentInfo> ParsePrefabComponents(string prefabContent)
+    {
+      var components = new List<ComponentInfo>();
+      var addedTypes = new HashSet<string>();
+
+      // Find the root GameObject ID in the prefab
+      var rootGameObjectMatch = Regex.Match(prefabContent, @"--- !u!1 &(\d+)\s+GameObject:");
+      if (!rootGameObjectMatch.Success)
+      {
+        return components;
+      }
+
+      var rootGameObjectId = rootGameObjectMatch.Groups[1].Value;
+
+      // Parse MonoBehaviour components
+      var monoBehaviourPattern = new Regex(
+        @"--- !u!114 &\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
+        RegexOptions.Singleline | RegexOptions.Multiline
+      );
+      var monoBehaviourMatches = monoBehaviourPattern.Matches(prefabContent);
+
+      foreach (Match match in monoBehaviourMatches)
+      {
+        var gameObjectId = match.Groups[1].Value;
+        if (gameObjectId != rootGameObjectId) continue;
+
+        var editorClassIdentifier = match.Groups[2].Value.Trim();
+        var componentType = ParseComponentType(editorClassIdentifier);
+
+        if (!string.IsNullOrEmpty(componentType) && IsUnityOrKnownComponent(componentType) && !addedTypes.Contains(componentType))
+        {
+          var safeName = MakeSafeName(componentType.Split('.').Last());
+          components.Add(new ComponentInfo
+          {
+            TypeFullName = componentType,
+            SafeName = safeName
+          });
+          _ = addedTypes.Add(componentType);
+        }
+      }
+
+      // Parse standard components
+      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!223", "UnityEngine.Canvas", components, addedTypes);
+      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!222", "UnityEngine.CanvasRenderer", components, addedTypes);
+      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!224", "UnityEngine.RectTransform", components, addedTypes);
+      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!4", "UnityEngine.Transform", components, addedTypes);
+      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!20", "UnityEngine.Camera", components, addedTypes);
+      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!81", "UnityEngine.AudioListener", components, addedTypes);
+      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!108", "UnityEngine.Light", components, addedTypes);
+
+      return components;
+    }
+
+    private static void ParsePrefabStandardComponent(string content, string gameObjectId, string classId, string componentType, List<ComponentInfo> components, HashSet<string> addedTypes)
+    {
+      var componentName = componentType.Split('.').Last();
+      var pattern = new Regex(
+        $@"--- {Regex.Escape(classId)} &\d+\s+{Regex.Escape(componentName)}:.*?m_GameObject:\s*\{{fileID:\s*(\d+)\}}",
+        RegexOptions.Singleline | RegexOptions.Multiline
+      );
+      var matches = pattern.Matches(content);
+
+      foreach (Match match in matches)
+      {
+        var goId = match.Groups[1].Value;
+        if (goId == gameObjectId && !addedTypes.Contains(componentType))
+        {
+          var safeName = MakeSafeName(componentName);
+          components.Add(new ComponentInfo
+          {
+            TypeFullName = componentType,
+            SafeName = safeName
+          });
+          _ = addedTypes.Add(componentType);
+          break;
+        }
+      }
+    }
+
     private static string MakeSafeName(string name)
     {
       if (string.IsNullOrEmpty(name)) return "_";
@@ -396,6 +640,9 @@ public static partial class AssetAccessorGenerator
       public string Name { get; set; }
       public string ParentId { get; set; }
       public List<ComponentInfo> Components { get; set; } = new List<ComponentInfo>();
+      public bool IsPrefabInstance { get; set; }
+      public string PrefabGuid { get; set; }
+      public string PrefabParentTransformId { get; set; }
     }
 
     private class ComponentInfo
