@@ -18,6 +18,10 @@ public class AudioCacheController
     LoadSceneAssets(initialScene);
   }
 
+  public AudioCacheController()
+  {
+  }
+
   // Assets.Audio.NotifySceneLoaded から呼ばれる
   public void LoadSceneAssets(AssetAccessor.Scene.Id sceneId)
   {

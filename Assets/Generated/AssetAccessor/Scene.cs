@@ -12,7 +12,7 @@ public static partial class AssetAccessor
       Menu,
     }
 
-    public static class Menu
+    public static partial class Menu
     {
       private static Id Enum => Id.Menu;
       public static void Load() => AssetAccessor.Scene.Load(Enum);

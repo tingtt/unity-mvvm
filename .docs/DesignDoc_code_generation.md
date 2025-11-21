@@ -19,7 +19,7 @@ This code generation system addresses these issues by automatically creating typ
 
 - Type safe scene loading calls
 - Type safe audio asset loading calls
-- (WIP) Type safe GameObject refers
+- Type safe GameObject references with hierarchical structure
 
 ## Usage
 
@@ -61,7 +61,7 @@ in [`Assets/Editor/Generator`](../Assets/Editor/Generator)
 
 #### [AssetAccessor Generator](../Assets/Editor/Generator/AssetAccessor/AssetAccessor.cs)
 
-Generating accessor ([Assets/Generated/AssetAccessor](../Assets/Generated/AssetAccessor/)) for scenes and audio assets.
+Generating accessor ([Assets/Generated/AssetAccessor](../Assets/Generated/AssetAccessor/)) for scenes, audio assets, and GameObjects.
 
 Scenes can be loaded with:
 
@@ -75,8 +75,68 @@ Audio asset can be loaded with:
 AudioClip seA = AssetsAccessor.Audio.SE.SeA.Load()
 ```
 
-#### WIP: GameObjectAccessor Generator
+GameObjects can be accessed with hierarchical structure matching Unity's hierarchy tree:
+
+```cs
+// Access GameObject directly
+GameObject canvas = AssetAccessor.Scene.Menu.GameObject.Canvas.Get()
+
+// Access child GameObject (hierarchical)
+GameObject background = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.Get()
+
+// Access components
+Image backgroundImage = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.GetComponent<Image>()
+```
+
+##### GameObject Accessor Implementation Details
+
+The GameObject accessor generator parses Unity scene files (.unity) in YAML format to extract:
+
+1. **GameObject definitions** with their unique IDs and names
+2. **Transform/RectTransform blocks** to map component IDs to GameObject IDs
+3. **Parent-child relationships** through `m_Father` references in Transform blocks
+
+The generator creates a hierarchical class structure that mirrors Unity's scene hierarchy:
+
+- Root GameObjects become top-level classes under `AssetAccessor.Scene.<SceneName>.GameObject`
+- Child GameObjects become nested classes inside their parent's class
+- Each GameObject class provides `Get()` and `GetComponent<T>()` methods
+
+**Special handling:**
+
+- **Duplicate names**: Appends numeric suffixes (e.g., `Canvas`, `Canvas1`, `Canvas2`)
+- **Reserved words**: Appends underscore suffix to avoid conflicts (e.g., `GameObject` → `GameObject_`)
+- **File organization**: Generates separate files per scene in `Assets/Generated/AssetAccessor/GameObject/<SceneName>.cs`
+
+The parser uses regex patterns to extract YAML blocks:
+
+```csharp
+// Match GameObject blocks: --- !u!1 &<id>
+var gameObjectPattern = @"--- !u!1 &(\d+)\s+GameObject:.*?m_Name:\s*(.+?)$"
+
+// Match Transform/RectTransform blocks: --- !u!224 or --- !u!4 &<id>
+var transformBlockPattern = @"--- !u!(?:224|4) &(\d+)\s+(?:RectTransform|Transform):.*?(?=^--- |\z)"
+```
+
+The multiline regex with lookahead ensures all Transform blocks are captured, including those at the end of the file.
 
 ## [`AudioCacheController`](../Assets/App/Library/AudioCacheController.cs)
 
-`AudioCacheController` managing audio assets, designed to optimize audio asset loading based on the loaded scene.
+`AudioCacheController` manages audio assets, designed to optimize audio asset loading based on the loaded scene.
+
+## [`GameObjectCacheController`](../Assets/App/Library/GameObjectCacheController.cs)
+
+`GameObjectCacheController` manages GameObject references in the current scene. When a scene is loaded via `AssetAccessor.Scene.<SceneName>.Load()`, the controller:
+
+1. Clears the cache if the scene has changed
+2. Recursively caches all GameObjects in the scene hierarchy
+3. Provides fast lookup through a `Dictionary<string, GameObject>` mapping
+
+**Key features:**
+
+- **Scene-aware caching**: Automatically refreshes when scene changes
+- **Null safety**: Validates cached references before returning
+- **Fallback mechanism**: Uses `GameObject.Find()` when cache misses occur
+- **Recursive caching**: Captures all GameObjects including children
+
+The cache is populated by traversing `SceneManager.GetActiveScene().GetRootGameObjects()` and recursively caching all children, ensuring efficient GameObject access without repeated scene queries.

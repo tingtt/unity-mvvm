@@ -9,17 +9,15 @@ public static partial class AssetAccessor
     {
       SceneManager.LoadScene(Path(id));
       Audio.NotifySceneLoaded(id);
+      GameObjectCacheController.OnSceneLoaded(id);
     }
+
+    private static readonly GameObjectCacheController GameObjectCacheController = new();
   }
 
   public static partial class Audio
   {
-    public static AudioCacheController CacheController { get; private set; }
-
-    public static void InitializeLoader(AudioCacheController controller)
-    {
-      CacheController = controller;
-    }
+    private static readonly AudioCacheController CacheController = new();
 
     internal static void NotifySceneLoaded(Scene.Id sceneId)
     {

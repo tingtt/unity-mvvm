@@ -70,7 +70,7 @@ public static partial class AssetAccessorGenerator
         var name = Path.GetFileNameWithoutExtension(scene.path);
         var enumName = MakeSafeName(name);
 
-        _ = sb.AppendLine($"    public static class {enumName}");
+        _ = sb.AppendLine($"    public static partial class {enumName}");
         _ = sb.AppendLine("    {");
         _ = sb.AppendLine($"      private static Id Enum => Id.{enumName};");
         _ = sb.AppendLine("      public static void Load() => AssetAccessor.Scene.Load(Enum);");
