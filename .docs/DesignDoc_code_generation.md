@@ -84,8 +84,9 @@ GameObject canvas = AssetAccessor.Scene.Menu.GameObject.Canvas.Get()
 // Access child GameObject (hierarchical)
 GameObject background = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.Get()
 
-// Access components
-Image backgroundImage = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.GetComponent<Image>()
+// Access components (type-safe)
+Image backgroundImage = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.Component.Image.Get()
+RectTransform rectTransform = AssetAccessor.Scene.Menu.GameObject.Canvas.Background.Component.RectTransform.Get()
 ```
 
 ##### GameObject Accessor Implementation Details
@@ -95,16 +96,36 @@ The GameObject accessor generator parses Unity scene files (.unity) in YAML form
 1. **GameObject definitions** with their unique IDs and names
 2. **Transform/RectTransform blocks** to map component IDs to GameObject IDs
 3. **Parent-child relationships** through `m_Father` references in Transform blocks
+4. **Component information** from MonoBehaviour and standard Unity component blocks
 
 The generator creates a hierarchical class structure that mirrors Unity's scene hierarchy:
 
 - Root GameObjects become top-level classes under `AssetAccessor.Scene.<SceneName>.GameObject`
 - Child GameObjects become nested classes inside their parent's class
-- Each GameObject class provides `Get()` and `GetComponent<T>()` methods
+- Each GameObject class provides:
+  - `Get()` method to retrieve the GameObject instance
+  - Nested `Component` class containing type-safe accessors for each attached component
+
+**Component Detection:**
+
+The generator automatically detects and creates type-safe accessors for:
+
+- **Unity UI components**: Image, Button, Text, Canvas, CanvasScaler, GraphicRaycaster, etc.
+- **Standard Unity components**: Transform, RectTransform, Camera, AudioListener, Light, etc.
+- **Known third-party packages**: TextMeshPro (TMPro.*), Cinemachine, Input System
+- **Custom user scripts are excluded** to avoid type conflicts and maintain clean generated code
+
+Components are detected by parsing:
+
+- `MonoBehaviour` blocks with `m_EditorClassIdentifier` (for UI and third-party components)
+- Standard Unity component blocks by their class IDs (!u!223 for Canvas, !u!224 for RectTransform, etc.)
+
+Each detected component gets its own nested class under `GameObject.<Name>.Component.<ComponentName>` with a type-safe `Get()` method that returns the specific component type.
 
 **Special handling:**
 
 - **Duplicate names**: Appends numeric suffixes (e.g., `Canvas`, `Canvas1`, `Canvas2`)
+- **Component name conflicts**: Appends `Component` suffix if component name matches the scene name
 - **Reserved words**: Appends underscore suffix to avoid conflicts (e.g., `GameObject` → `GameObject_`)
 - **File organization**: Generates separate files per scene in `Assets/Generated/AssetAccessor/GameObject/<SceneName>.cs`
 
@@ -116,9 +137,12 @@ var gameObjectPattern = @"--- !u!1 &(\d+)\s+GameObject:.*?m_Name:\s*(.+?)$"
 
 // Match Transform/RectTransform blocks: --- !u!224 or --- !u!4 &<id>
 var transformBlockPattern = @"--- !u!(?:224|4) &(\d+)\s+(?:RectTransform|Transform):.*?(?=^--- |\z)"
+
+// Match MonoBehaviour components with editor class identifier
+var monoBehaviourPattern = @"--- !u!114 &\d+\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$"
 ```
 
-The multiline regex with lookahead ensures all Transform blocks are captured, including those at the end of the file.
+The multiline regex with lookahead ensures all blocks are captured, including those at the end of the file.
 
 ## [`AudioCacheController`](../Assets/App/Library/AudioCacheController.cs)
 

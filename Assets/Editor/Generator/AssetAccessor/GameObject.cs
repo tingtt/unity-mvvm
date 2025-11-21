@@ -106,19 +106,33 @@ public static partial class AssetAccessorGenerator
       _ = sb.AppendLine($"{indentStr}    return Scene.GameObjectCacheController.GetGameObject(\"{go.Name}\")");
       _ = sb.AppendLine($"{indentStr}      ?? throw new System.Exception($\"[AssetAccessor.GameObject] GameObject '{go.Name}' not found or scene not loaded\");");
       _ = sb.AppendLine($"{indentStr}  }}");
-      _ = sb.AppendLine();
 
-      // Generate GetComponent method
-      _ = sb.AppendLine($"{indentStr}  public static T GetComponent<T>() where T : Component");
-      _ = sb.AppendLine($"{indentStr}  {{");
-      _ = sb.AppendLine($"{indentStr}    var go = Get();");
-      _ = sb.AppendLine($"{indentStr}    var component = go.GetComponent<T>();");
-      _ = sb.AppendLine($"{indentStr}    if (component == null)");
-      _ = sb.AppendLine($"{indentStr}    {{");
-      _ = sb.AppendLine($"{indentStr}      throw new System.Exception($\"[AssetAccessor.GameObject] Component {{typeof(T).Name}} not found on GameObject '{go.Name}'\");");
-      _ = sb.AppendLine($"{indentStr}    }}");
-      _ = sb.AppendLine($"{indentStr}    return component;");
-      _ = sb.AppendLine($"{indentStr}  }}");
+      // Generate type-safe Component accessor class
+      if (go.Components.Count > 0)
+      {
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static class Component");
+        _ = sb.AppendLine($"{indentStr}  {{");
+
+        foreach (var component in go.Components)
+        {
+          _ = sb.AppendLine($"{indentStr}    public static class {component.SafeName}");
+          _ = sb.AppendLine($"{indentStr}    {{");
+          _ = sb.AppendLine($"{indentStr}      public static {component.TypeFullName} Get()");
+          _ = sb.AppendLine($"{indentStr}      {{");
+          _ = sb.AppendLine($"{indentStr}        var go = {className}.Get();");
+          _ = sb.AppendLine($"{indentStr}        var component = go.GetComponent<{component.TypeFullName}>();");
+          _ = sb.AppendLine($"{indentStr}        if (component == null)");
+          _ = sb.AppendLine($"{indentStr}        {{");
+          _ = sb.AppendLine($"{indentStr}          throw new System.Exception($\"[AssetAccessor.GameObject] Component {component.TypeFullName} not found on GameObject '{go.Name}'\");");
+          _ = sb.AppendLine($"{indentStr}        }}");
+          _ = sb.AppendLine($"{indentStr}        return component;");
+          _ = sb.AppendLine($"{indentStr}      }}");
+          _ = sb.AppendLine($"{indentStr}    }}");
+        }
+
+        _ = sb.AppendLine($"{indentStr}  }}");
+      }
 
       // Generate child GameObjects as nested classes
       var children = allGameObjects.Where(child => child.ParentId == go.Id).ToList();
@@ -224,7 +238,122 @@ public static partial class AssetAccessorGenerator
         }
       }
 
+      // Parse components for each GameObject
+      ParseComponentsForGameObjects(content, gameObjects);
+
       return gameObjects;
+    }
+
+    private static void ParseComponentsForGameObjects(string content, List<GameObjectInfo> gameObjects)
+    {
+      // Create a dictionary for quick lookup
+      var gameObjectDict = gameObjects.ToDictionary(go => go.Id);
+
+      // Parse MonoBehaviour components (UI components like Image, Button, Text, etc.)
+      var monoBehaviourPattern = new Regex(
+        @"--- !u!114 &\d+\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
+        RegexOptions.Singleline | RegexOptions.Multiline
+      );
+      var monoBehaviourMatches = monoBehaviourPattern.Matches(content);
+
+      foreach (Match match in monoBehaviourMatches)
+      {
+        var gameObjectId = match.Groups[1].Value;
+        var editorClassIdentifier = match.Groups[2].Value.Trim();
+
+        if (gameObjectDict.TryGetValue(gameObjectId, out var go) && !string.IsNullOrEmpty(editorClassIdentifier))
+        {
+          var componentType = ParseComponentType(editorClassIdentifier);
+          if (!string.IsNullOrEmpty(componentType) && IsUnityOrKnownComponent(componentType))
+          {
+            var safeName = MakeSafeName(componentType.Split('.').Last());
+            go.Components.Add(new ComponentInfo
+            {
+              TypeFullName = componentType,
+              SafeName = safeName
+            });
+          }
+        }
+      }
+
+      // Parse other common component types
+      ParseStandardComponents(content, gameObjectDict, "!u!223", "UnityEngine.Canvas", "Canvas");
+      ParseStandardComponents(content, gameObjectDict, "!u!222", "UnityEngine.CanvasRenderer", "CanvasRenderer");
+      ParseStandardComponents(content, gameObjectDict, "!u!224", "UnityEngine.RectTransform", "RectTransform");
+      ParseStandardComponents(content, gameObjectDict, "!u!4", "UnityEngine.Transform", "Transform");
+      ParseStandardComponents(content, gameObjectDict, "!u!20", "UnityEngine.Camera", "Camera");
+      ParseStandardComponents(content, gameObjectDict, "!u!81", "UnityEngine.AudioListener", "AudioListener");
+      ParseStandardComponents(content, gameObjectDict, "!u!108", "UnityEngine.Light", "Light");
+      ParseStandardComponents(content, gameObjectDict, "!u!114", "UnityEngine.EventSystems.EventSystem", "EventSystem");
+    }
+
+    private static void ParseStandardComponents(string content, Dictionary<string, GameObjectInfo> gameObjectDict, string classId, string componentType, string componentName)
+    {
+      var pattern = new Regex(
+        $@"--- {Regex.Escape(classId)} &\d+\s+{Regex.Escape(componentName)}:.*?m_GameObject:\s*\{{fileID:\s*(\d+)\}}",
+        RegexOptions.Singleline | RegexOptions.Multiline
+      );
+      var matches = pattern.Matches(content);
+
+      foreach (Match match in matches)
+      {
+        var gameObjectId = match.Groups[1].Value;
+        if (gameObjectDict.TryGetValue(gameObjectId, out var go))
+        {
+          var safeName = MakeSafeName(componentType.Split('.').Last());
+          // Avoid duplicates
+          if (!go.Components.Any(c => c.TypeFullName == componentType))
+          {
+            go.Components.Add(new ComponentInfo
+            {
+              TypeFullName = componentType,
+              SafeName = safeName
+            });
+          }
+        }
+      }
+    }
+
+    private static string ParseComponentType(string editorClassIdentifier)
+    {
+      // editorClassIdentifier format examples:
+      // "UnityEngine.UI::UnityEngine.UI.Image"
+      // "UnityEngine.EventSystems::UnityEngine.EventSystems.EventSystem"
+      // "::CustomScript"
+
+      if (string.IsNullOrEmpty(editorClassIdentifier))
+      {
+        return null;
+      }
+
+      var parts = editorClassIdentifier.Split(new[] { "::" }, StringSplitOptions.RemoveEmptyEntries);
+      if (parts.Length == 2)
+      {
+        return parts[1].Trim();
+      }
+      else if (parts.Length == 1)
+      {
+        return parts[0].Trim();
+      }
+
+      return null;
+    }
+
+    private static bool IsUnityOrKnownComponent(string componentType)
+    {
+      if (string.IsNullOrEmpty(componentType))
+      {
+        return false;
+      }
+
+      // Include only Unity engine components and known third-party packages
+      // Exclude custom user scripts
+      return componentType.StartsWith("UnityEngine.") ||
+            componentType.StartsWith("UnityEditor.") ||
+            componentType.StartsWith("Unity.") ||
+            componentType.StartsWith("TMPro.") || // TextMeshPro
+            componentType.StartsWith("Cinemachine.") || // Cinemachine
+            componentType.StartsWith("UnityEngine.InputSystem."); // Input System
     }
 
     private static string MakeSafeName(string name)
@@ -266,6 +395,13 @@ public static partial class AssetAccessorGenerator
       public string Id { get; set; }
       public string Name { get; set; }
       public string ParentId { get; set; }
+      public List<ComponentInfo> Components { get; set; } = new List<ComponentInfo>();
+    }
+
+    private class ComponentInfo
+    {
+      public string TypeFullName { get; set; }
+      public string SafeName { get; set; }
     }
   }
 }

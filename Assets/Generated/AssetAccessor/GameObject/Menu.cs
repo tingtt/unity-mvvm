@@ -18,15 +18,47 @@ public static partial class AssetAccessor
               ?? throw new System.Exception($"[AssetAccessor.GameObject] GameObject 'EventSystem' not found or scene not loaded");
           }
 
-          public static T GetComponent<T>() where T : Component
+          public static class Component
           {
-            var go = Get();
-            var component = go.GetComponent<T>();
-            if (component == null)
+            public static class InputSystemUIInputModule
             {
-              throw new System.Exception($"[AssetAccessor.GameObject] Component {typeof(T).Name} not found on GameObject 'EventSystem'");
+              public static UnityEngine.InputSystem.UI.InputSystemUIInputModule Get()
+              {
+                var go = EventSystem.Get();
+                var component = go.GetComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.InputSystem.UI.InputSystemUIInputModule not found on GameObject 'EventSystem'");
+                }
+                return component;
+              }
             }
-            return component;
+            public static class EventSystem
+            {
+              public static UnityEngine.EventSystems.EventSystem Get()
+              {
+                var go = EventSystem.Get();
+                var component = go.GetComponent<UnityEngine.EventSystems.EventSystem>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.EventSystems.EventSystem not found on GameObject 'EventSystem'");
+                }
+                return component;
+              }
+            }
+            public static class Transform
+            {
+              public static UnityEngine.Transform Get()
+              {
+                var go = EventSystem.Get();
+                var component = go.GetComponent<UnityEngine.Transform>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.Transform not found on GameObject 'EventSystem'");
+                }
+                return component;
+              }
+            }
           }
         }
         public static class MainCamera
@@ -37,15 +69,60 @@ public static partial class AssetAccessor
               ?? throw new System.Exception($"[AssetAccessor.GameObject] GameObject 'Main Camera' not found or scene not loaded");
           }
 
-          public static T GetComponent<T>() where T : Component
+          public static class Component
           {
-            var go = Get();
-            var component = go.GetComponent<T>();
-            if (component == null)
+            public static class UniversalAdditionalCameraData
             {
-              throw new System.Exception($"[AssetAccessor.GameObject] Component {typeof(T).Name} not found on GameObject 'Main Camera'");
+              public static UnityEngine.Rendering.Universal.UniversalAdditionalCameraData Get()
+              {
+                var go = MainCamera.Get();
+                var component = go.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.Rendering.Universal.UniversalAdditionalCameraData not found on GameObject 'Main Camera'");
+                }
+                return component;
+              }
             }
-            return component;
+            public static class Transform
+            {
+              public static UnityEngine.Transform Get()
+              {
+                var go = MainCamera.Get();
+                var component = go.GetComponent<UnityEngine.Transform>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.Transform not found on GameObject 'Main Camera'");
+                }
+                return component;
+              }
+            }
+            public static class Camera
+            {
+              public static UnityEngine.Camera Get()
+              {
+                var go = MainCamera.Get();
+                var component = go.GetComponent<UnityEngine.Camera>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.Camera not found on GameObject 'Main Camera'");
+                }
+                return component;
+              }
+            }
+            public static class AudioListener
+            {
+              public static UnityEngine.AudioListener Get()
+              {
+                var go = MainCamera.Get();
+                var component = go.GetComponent<UnityEngine.AudioListener>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.AudioListener not found on GameObject 'Main Camera'");
+                }
+                return component;
+              }
+            }
           }
         }
         public static class Script
@@ -56,15 +133,21 @@ public static partial class AssetAccessor
               ?? throw new System.Exception($"[AssetAccessor.GameObject] GameObject 'Script' not found or scene not loaded");
           }
 
-          public static T GetComponent<T>() where T : Component
+          public static class Component
           {
-            var go = Get();
-            var component = go.GetComponent<T>();
-            if (component == null)
+            public static class Transform
             {
-              throw new System.Exception($"[AssetAccessor.GameObject] Component {typeof(T).Name} not found on GameObject 'Script'");
+              public static UnityEngine.Transform Get()
+              {
+                var go = Script.Get();
+                var component = go.GetComponent<UnityEngine.Transform>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.Transform not found on GameObject 'Script'");
+                }
+                return component;
+              }
             }
-            return component;
           }
         }
         public static class Canvas
@@ -75,15 +158,60 @@ public static partial class AssetAccessor
               ?? throw new System.Exception($"[AssetAccessor.GameObject] GameObject 'Canvas' not found or scene not loaded");
           }
 
-          public static T GetComponent<T>() where T : Component
+          public static class Component
           {
-            var go = Get();
-            var component = go.GetComponent<T>();
-            if (component == null)
+            public static class GraphicRaycaster
             {
-              throw new System.Exception($"[AssetAccessor.GameObject] Component {typeof(T).Name} not found on GameObject 'Canvas'");
+              public static UnityEngine.UI.GraphicRaycaster Get()
+              {
+                var go = Canvas.Get();
+                var component = go.GetComponent<UnityEngine.UI.GraphicRaycaster>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.UI.GraphicRaycaster not found on GameObject 'Canvas'");
+                }
+                return component;
+              }
             }
-            return component;
+            public static class CanvasScaler
+            {
+              public static UnityEngine.UI.CanvasScaler Get()
+              {
+                var go = Canvas.Get();
+                var component = go.GetComponent<UnityEngine.UI.CanvasScaler>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.UI.CanvasScaler not found on GameObject 'Canvas'");
+                }
+                return component;
+              }
+            }
+            public static class Canvas
+            {
+              public static UnityEngine.Canvas Get()
+              {
+                var go = Canvas.Get();
+                var component = go.GetComponent<UnityEngine.Canvas>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.Canvas not found on GameObject 'Canvas'");
+                }
+                return component;
+              }
+            }
+            public static class RectTransform
+            {
+              public static UnityEngine.RectTransform Get()
+              {
+                var go = Canvas.Get();
+                var component = go.GetComponent<UnityEngine.RectTransform>();
+                if (component == null)
+                {
+                  throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.RectTransform not found on GameObject 'Canvas'");
+                }
+                return component;
+              }
+            }
           }
 
           public static class Background
@@ -94,15 +222,47 @@ public static partial class AssetAccessor
                 ?? throw new System.Exception($"[AssetAccessor.GameObject] GameObject 'Background' not found or scene not loaded");
             }
 
-            public static T GetComponent<T>() where T : Component
+            public static class Component
             {
-              var go = Get();
-              var component = go.GetComponent<T>();
-              if (component == null)
+              public static class Image
               {
-                throw new System.Exception($"[AssetAccessor.GameObject] Component {typeof(T).Name} not found on GameObject 'Background'");
+                public static UnityEngine.UI.Image Get()
+                {
+                  var go = Background.Get();
+                  var component = go.GetComponent<UnityEngine.UI.Image>();
+                  if (component == null)
+                  {
+                    throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.UI.Image not found on GameObject 'Background'");
+                  }
+                  return component;
+                }
               }
-              return component;
+              public static class CanvasRenderer
+              {
+                public static UnityEngine.CanvasRenderer Get()
+                {
+                  var go = Background.Get();
+                  var component = go.GetComponent<UnityEngine.CanvasRenderer>();
+                  if (component == null)
+                  {
+                    throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.CanvasRenderer not found on GameObject 'Background'");
+                  }
+                  return component;
+                }
+              }
+              public static class RectTransform
+              {
+                public static UnityEngine.RectTransform Get()
+                {
+                  var go = Background.Get();
+                  var component = go.GetComponent<UnityEngine.RectTransform>();
+                  if (component == null)
+                  {
+                    throw new System.Exception($"[AssetAccessor.GameObject] Component UnityEngine.RectTransform not found on GameObject 'Background'");
+                  }
+                  return component;
+                }
+              }
             }
           }
         }
