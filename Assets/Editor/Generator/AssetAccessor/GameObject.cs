@@ -103,8 +103,27 @@ public static partial class AssetAccessorGenerator
       // Generate GetGameObject method
       _ = sb.AppendLine($"{indentStr}  public static UnityEngine.GameObject Get()");
       _ = sb.AppendLine($"{indentStr}  {{");
-      _ = sb.AppendLine($"{indentStr}    return Scene.GameObjectCacheController.GetGameObject(\"{go.Name}\")");
-      _ = sb.AppendLine($"{indentStr}      ?? throw new System.Exception($\"[AssetAccessor.GameObject] GameObject '{go.Name}' not found or scene not loaded\");");
+
+      if (go.IsPrefabChild)
+      {
+        // Prefab child: find via parent's transform
+        var parentGO = allGameObjects.FirstOrDefault(g => g.Id == go.ParentId);
+        var parentClassName = parentGO != null ? MakeSafeName(parentGO.Name) : "Parent";
+        _ = sb.AppendLine($"{indentStr}    var parent = {parentClassName}.Get();");
+        _ = sb.AppendLine($"{indentStr}    var child = parent.transform.Find(\"{go.Name}\");");
+        _ = sb.AppendLine($"{indentStr}    if (child == null)");
+        _ = sb.AppendLine($"{indentStr}    {{");
+        _ = sb.AppendLine($"{indentStr}      throw new System.Exception($\"[AssetAccessor.GameObject] Child GameObject '{go.Name}' not found under parent\");");
+        _ = sb.AppendLine($"{indentStr}    }}");
+        _ = sb.AppendLine($"{indentStr}    return child.gameObject;");
+      }
+      else
+      {
+        // Regular GameObject or PrefabInstance root: find via cache
+        _ = sb.AppendLine($"{indentStr}    return Scene.GameObjectCacheController.GetGameObject(\"{go.Name}\")");
+        _ = sb.AppendLine($"{indentStr}      ?? throw new System.Exception($\"[AssetAccessor.GameObject] GameObject '{go.Name}' not found or scene not loaded\");");
+      }
+
       _ = sb.AppendLine($"{indentStr}  }}");
 
       // Generate type-safe Component accessor class
@@ -475,7 +494,10 @@ public static partial class AssetAccessorGenerator
       // Get the Assets directory path
       var assetsPath = Path.GetFullPath(Path.Combine(sceneDir, "..", ".."));
 
-      foreach (var go in gameObjects.Where(g => g.IsPrefabInstance && !string.IsNullOrEmpty(g.PrefabGuid)))
+      // Create a list of prefab children to add after iteration
+      var prefabChildrenToAdd = new List<GameObjectInfo>();
+
+      foreach (var go in gameObjects.Where(g => g.IsPrefabInstance && !string.IsNullOrEmpty(g.PrefabGuid)).ToList())
       {
         // Find prefab file by GUID
         var prefabPath = FindAssetPathByGuid(go.PrefabGuid, assetsPath);
@@ -484,19 +506,60 @@ public static partial class AssetAccessorGenerator
           continue;
         }
 
-        // Parse prefab file to extract components
+        // Parse prefab file to extract all GameObjects and build hierarchy
         var prefabContent = File.ReadAllText(prefabPath);
-        var prefabComponents = ParsePrefabComponents(prefabContent);
+        var prefabGameObjects = ParsePrefabGameObjects(prefabContent);
 
-        // Add components that aren't already in the list (from scene overrides)
-        foreach (var component in prefabComponents)
+        // Find the root GameObject in the prefab
+        var rootPrefabGO = prefabGameObjects.FirstOrDefault(pgo => string.IsNullOrEmpty(pgo.ParentId));
+        if (rootPrefabGO != null)
         {
-          if (!go.Components.Any(c => c.TypeFullName == component.TypeFullName))
+          // Add root GameObject's components to the PrefabInstance
+          foreach (var component in rootPrefabGO.Components)
           {
-            go.Components.Add(component);
+            if (!go.Components.Any(c => c.TypeFullName == component.TypeFullName))
+            {
+              go.Components.Add(component);
+            }
+          }
+
+          // Create mapping of prefab GameObject IDs to their GameObjectInfo
+          var prefabIdMap = prefabGameObjects.ToDictionary(pgo => pgo.Id);
+
+          // Add child GameObjects from prefab to the list for later addition
+          foreach (var childGO in prefabGameObjects.Where(pgo => !string.IsNullOrEmpty(pgo.ParentId)))
+          {
+            // Create a new GameObject with prefab-based virtual ID
+            var prefabChildId = $"{go.Id}_child_{childGO.Id}";
+
+            // Determine the correct parent ID in the scene's GameObject list
+            string sceneParentId;
+            if (childGO.ParentId == rootPrefabGO.Id)
+            {
+              // Direct child of root prefab GameObject -> parent is the PrefabInstance itself
+              sceneParentId = go.Id;
+            }
+            else
+            {
+              // Nested child -> parent is also a prefab child
+              sceneParentId = $"{go.Id}_child_{childGO.ParentId}";
+            }
+
+            prefabChildrenToAdd.Add(new GameObjectInfo
+            {
+              Id = prefabChildId,
+              Name = childGO.Name,
+              ParentId = sceneParentId,
+              Components = new List<ComponentInfo>(childGO.Components),
+              IsPrefabInstance = false,
+              IsPrefabChild = true
+            });
           }
         }
       }
+
+      // Add all prefab children after iteration
+      gameObjects.AddRange(prefabChildrenToAdd);
     }
 
     private static string FindAssetPathByGuid(string guid, string assetsPath)
@@ -521,57 +584,119 @@ public static partial class AssetAccessorGenerator
       return null;
     }
 
-    private static List<ComponentInfo> ParsePrefabComponents(string prefabContent)
+    private static List<GameObjectInfo> ParsePrefabGameObjects(string prefabContent)
     {
-      var components = new List<ComponentInfo>();
-      var addedTypes = new HashSet<string>();
+      var gameObjects = new List<GameObjectInfo>();
 
-      // Find the root GameObject ID in the prefab
-      var rootGameObjectMatch = Regex.Match(prefabContent, @"--- !u!1 &(\d+)\s+GameObject:");
-      if (!rootGameObjectMatch.Success)
+      // Parse all GameObjects in the prefab
+      var gameObjectPattern = new Regex(@"--- !u!1 &(\d+)\s+GameObject:.*?m_Name:\s*(.+?)$", RegexOptions.Singleline | RegexOptions.Multiline);
+      var matches = gameObjectPattern.Matches(prefabContent);
+
+      foreach (Match match in matches)
       {
-        return components;
+        var id = match.Groups[1].Value;
+        var name = match.Groups[2].Value.Trim();
+
+        if (string.IsNullOrEmpty(name))
+        {
+          continue;
+        }
+
+        gameObjects.Add(new GameObjectInfo
+        {
+          Id = id,
+          Name = name,
+          ParentId = null,
+          IsPrefabInstance = false
+        });
       }
 
-      var rootGameObjectId = rootGameObjectMatch.Groups[1].Value;
+      // Build mapping: Transform/RectTransform ID -> GameObject ID
+      var transformToGameObject = new Dictionary<string, string>();
+      var transformBlockPattern = new Regex(@"--- !u!(?:224|4) &(\d+)\s+(?:RectTransform|Transform):.*?(?=^--- |\z)", RegexOptions.Singleline | RegexOptions.Multiline);
+      var transformMatches = transformBlockPattern.Matches(prefabContent);
+      var transformBlocks = transformMatches.Cast<Match>().ToArray();
 
-      // Parse MonoBehaviour components
-      var monoBehaviourPattern = new Regex(
-        @"--- !u!114 &\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
-        RegexOptions.Singleline | RegexOptions.Multiline
-      );
-      var monoBehaviourMatches = monoBehaviourPattern.Matches(prefabContent);
-
-      foreach (Match match in monoBehaviourMatches)
+      foreach (var block in transformBlocks)
       {
-        var gameObjectId = match.Groups[1].Value;
-        if (gameObjectId != rootGameObjectId) continue;
+        var transformId = block.Groups[1].Value;
+        var blockContent = block.Value;
 
-        var editorClassIdentifier = match.Groups[2].Value.Trim();
-        var componentType = ParseComponentType(editorClassIdentifier);
-
-        if (!string.IsNullOrEmpty(componentType) && IsUnityOrKnownComponent(componentType) && !addedTypes.Contains(componentType))
+        var gameObjectMatch = Regex.Match(blockContent, @"m_GameObject:\s*\{fileID:\s*(\d+)\}");
+        if (gameObjectMatch.Success)
         {
-          var safeName = MakeSafeName(componentType.Split('.').Last());
-          components.Add(new ComponentInfo
-          {
-            TypeFullName = componentType,
-            SafeName = safeName
-          });
-          _ = addedTypes.Add(componentType);
+          var gameObjectId = gameObjectMatch.Groups[1].Value;
+          transformToGameObject[transformId] = gameObjectId;
         }
       }
 
-      // Parse standard components
-      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!223", "UnityEngine.Canvas", components, addedTypes);
-      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!222", "UnityEngine.CanvasRenderer", components, addedTypes);
-      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!224", "UnityEngine.RectTransform", components, addedTypes);
-      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!4", "UnityEngine.Transform", components, addedTypes);
-      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!20", "UnityEngine.Camera", components, addedTypes);
-      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!81", "UnityEngine.AudioListener", components, addedTypes);
-      ParsePrefabStandardComponent(prefabContent, rootGameObjectId, "!u!108", "UnityEngine.Light", components, addedTypes);
+      // Parse parent-child relationships
+      foreach (var block in transformBlocks)
+      {
+        var transformId = block.Groups[1].Value;
+        var blockContent = block.Value;
 
-      return components;
+        var gameObjectMatch = Regex.Match(blockContent, @"m_GameObject:\s*\{fileID:\s*(\d+)\}");
+        if (!gameObjectMatch.Success) continue;
+        var gameObjectId = gameObjectMatch.Groups[1].Value;
+
+        var fatherMatch = Regex.Match(blockContent, @"m_Father:\s*\{fileID:\s*(\d+)\}");
+        if (!fatherMatch.Success) continue;
+        var parentTransformId = fatherMatch.Groups[1].Value;
+
+        if (parentTransformId != "0" && transformToGameObject.TryGetValue(parentTransformId, out var parentGameObjectId))
+        {
+          var go = gameObjects.FirstOrDefault(g => g.Id == gameObjectId);
+          if (go != null)
+          {
+            go.ParentId = parentGameObjectId;
+          }
+        }
+      }
+
+      // Parse components for each GameObject
+      foreach (var go in gameObjects)
+      {
+        var addedTypes = new HashSet<string>();
+
+        // Parse MonoBehaviour components
+        var monoBehaviourPattern = new Regex(
+          @"--- !u!114 &\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
+          RegexOptions.Singleline | RegexOptions.Multiline
+        );
+        var monoBehaviourMatches = monoBehaviourPattern.Matches(prefabContent);
+
+        foreach (Match match in monoBehaviourMatches)
+        {
+          var gameObjectId = match.Groups[1].Value;
+          if (gameObjectId != go.Id) continue;
+
+          var editorClassIdentifier = match.Groups[2].Value.Trim();
+          var componentType = ParseComponentType(editorClassIdentifier);
+
+          if (!string.IsNullOrEmpty(componentType) && IsUnityOrKnownComponent(componentType) && !addedTypes.Contains(componentType))
+          {
+            var safeName = MakeSafeName(componentType.Split('.').Last());
+            go.Components.Add(new ComponentInfo
+            {
+              TypeFullName = componentType,
+              SafeName = safeName
+            });
+            _ = addedTypes.Add(componentType);
+          }
+        }
+
+        // Parse standard components
+        ParsePrefabStandardComponent(prefabContent, go.Id, "!u!223", "UnityEngine.Canvas", go.Components, addedTypes);
+        ParsePrefabStandardComponent(prefabContent, go.Id, "!u!222", "UnityEngine.CanvasRenderer", go.Components, addedTypes);
+        ParsePrefabStandardComponent(prefabContent, go.Id, "!u!224", "UnityEngine.RectTransform", go.Components, addedTypes);
+        ParsePrefabStandardComponent(prefabContent, go.Id, "!u!4", "UnityEngine.Transform", go.Components, addedTypes);
+        ParsePrefabStandardComponent(prefabContent, go.Id, "!u!20", "UnityEngine.Camera", go.Components, addedTypes);
+        ParsePrefabStandardComponent(prefabContent, go.Id, "!u!81", "UnityEngine.AudioListener", go.Components, addedTypes);
+        ParsePrefabStandardComponent(prefabContent, go.Id, "!u!108", "UnityEngine.Light", go.Components, addedTypes);
+      }
+
+      return gameObjects;
     }
 
     private static void ParsePrefabStandardComponent(string content, string gameObjectId, string classId, string componentType, List<ComponentInfo> components, HashSet<string> addedTypes)
@@ -643,6 +768,8 @@ public static partial class AssetAccessorGenerator
       public bool IsPrefabInstance { get; set; }
       public string PrefabGuid { get; set; }
       public string PrefabParentTransformId { get; set; }
+      public List<GameObjectInfo> Children { get; set; } = new List<GameObjectInfo>();
+      public bool IsPrefabChild { get; set; }
     }
 
     private class ComponentInfo
