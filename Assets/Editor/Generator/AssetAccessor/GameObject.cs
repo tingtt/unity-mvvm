@@ -126,6 +126,17 @@ public static partial class AssetAccessorGenerator
 
       _ = sb.AppendLine($"{indentStr}  }}");
 
+      // Generate convenience method for Button component if present
+      var buttonComponent = go.Components.FirstOrDefault(c => c.TypeFullName == "UnityEngine.UI.Button");
+      if (buttonComponent != null)
+      {
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void AddListener(UnityEngine.Events.UnityAction action)");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.Button.Get().onClick.AddListener(action);");
+        _ = sb.AppendLine($"{indentStr}  }}");
+      }
+
       // Generate type-safe Component accessor class
       if (go.Components.Count > 0)
       {
