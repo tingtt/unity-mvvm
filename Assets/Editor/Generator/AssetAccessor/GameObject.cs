@@ -131,7 +131,7 @@ public static partial class AssetAccessorGenerator
       if (buttonComponent != null)
       {
         _ = sb.AppendLine();
-        _ = sb.AppendLine($"{indentStr}  public static void AddListener(UnityEngine.Events.UnityAction action)");
+        _ = sb.AppendLine($"{indentStr}  public static void AddOnClickListener(UnityEngine.Events.UnityAction action)");
         _ = sb.AppendLine($"{indentStr}  {{");
         _ = sb.AppendLine($"{indentStr}    Component.Button.Get().onClick.AddListener(action);");
         _ = sb.AppendLine($"{indentStr}  }}");
