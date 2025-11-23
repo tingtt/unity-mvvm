@@ -126,7 +126,7 @@ public static partial class AssetAccessorGenerator
 
       _ = sb.AppendLine($"{indentStr}  }}");
 
-      // Generate convenience method for Button component if present
+      // Generate convenience methods for Button component if present
       var buttonComponent = go.Components.FirstOrDefault(c => c.TypeFullName == "UnityEngine.UI.Button");
       if (buttonComponent != null)
       {
@@ -134,6 +134,63 @@ public static partial class AssetAccessorGenerator
         _ = sb.AppendLine($"{indentStr}  public static void AddOnClickListener(UnityEngine.Events.UnityAction action)");
         _ = sb.AppendLine($"{indentStr}  {{");
         _ = sb.AppendLine($"{indentStr}    Component.Button.Get().onClick.AddListener(action);");
+        _ = sb.AppendLine($"{indentStr}  }}");
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void Activate()");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.Button.Get().interactable = true;");
+        _ = sb.AppendLine($"{indentStr}  }}");
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void Deactivate()");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.Button.Get().interactable = false;");
+        _ = sb.AppendLine($"{indentStr}  }}");
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void InvokeOnClick()");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.Button.Get().onClick.Invoke();");
+        _ = sb.AppendLine($"{indentStr}  }}");
+      }
+
+      // Generate convenience methods for TMP_InputField component if present
+      var tmpInputFieldComponent = go.Components.FirstOrDefault(c => c.TypeFullName == "TMPro.TMP_InputField");
+      if (tmpInputFieldComponent != null)
+      {
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void Activate()");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.{tmpInputFieldComponent.SafeName}.Get().ActivateInputField();");
+        _ = sb.AppendLine($"{indentStr}  }}");
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void Deactivate()");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.{tmpInputFieldComponent.SafeName}.Get().DeactivateInputField();");
+        _ = sb.AppendLine($"{indentStr}  }}");
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void SetText(string text)");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.{tmpInputFieldComponent.SafeName}.Get().textComponent.SetText(text);");
+        _ = sb.AppendLine($"{indentStr}  }}");
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void AddOnSubmitListener(UnityEngine.Events.UnityAction<string> action)");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.{tmpInputFieldComponent.SafeName}.Get().onSubmit.AddListener(action);");
+        _ = sb.AppendLine($"{indentStr}  }}");
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void AddOnValueChangedListener(UnityEngine.Events.UnityAction<string> action)");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.{tmpInputFieldComponent.SafeName}.Get().onValueChanged.AddListener(action);");
+        _ = sb.AppendLine($"{indentStr}  }}");
+      }
+
+      // Generate convenience methods for TextMeshProUGUI component if present
+      var textMeshProComponent = go.Components.FirstOrDefault(c => c.TypeFullName == "TMPro.TextMeshProUGUI");
+      if (textMeshProComponent != null)
+      {
+        _ = sb.AppendLine();
+        _ = sb.AppendLine($"{indentStr}  public static void SetText(string text)");
+        _ = sb.AppendLine($"{indentStr}  {{");
+        _ = sb.AppendLine($"{indentStr}    Component.{textMeshProComponent.SafeName}.Get().SetText(text);");
         _ = sb.AppendLine($"{indentStr}  }}");
       }
 
