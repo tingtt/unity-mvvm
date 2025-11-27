@@ -113,7 +113,7 @@ The generator automatically detects and creates type-safe accessors for:
 - **Unity UI components**: Image, Button, Text, Canvas, CanvasScaler, GraphicRaycaster, etc.
 - **Standard Unity components**: Transform, RectTransform, Camera, AudioListener, Light, etc.
 - **Known third-party packages**: TextMeshPro (TMPro.*), Cinemachine, Input System
-- **Custom user scripts are excluded** to avoid type conflicts and maintain clean generated code
+- **Custom MonoBehaviour scripts**: User-defined scripts attached to GameObjects
 
 Components are detected by parsing:
 
@@ -121,6 +121,47 @@ Components are detected by parsing:
 - Standard Unity component blocks by their class IDs (!u!223 for Canvas, !u!224 for RectTransform, etc.)
 
 Each detected component gets its own nested class under `GameObject.<Name>.Component.<ComponentName>` with a type-safe `Get()` method that returns the specific component type.
+
+**Custom Script Accessor Generation:**
+
+For custom MonoBehaviour scripts attached to GameObjects, the generator provides enhanced accessibility:
+
+1. **Script instance access**: Available through `Component.Script.Get<ScriptName>()` method
+2. **Direct member access**: Public properties, methods, and fields are exposed directly on the GameObject class for convenient access
+3. **Nested type resolution**: Types defined within the script class (enums, nested classes) are automatically resolved with proper aliasing
+
+Example for a `ModeToggle` script with a public `Mode` enum and `CurrentMode` property:
+
+```csharp
+// Access the ModeToggle GameObject
+GameObject toggle = AssetAccessor.Scene.WaitAndSettingForOwner.GameObject.Canvas.Panel.ModeToggle.Get()
+
+// Get the script instance directly
+ModeToggle script = AssetAccessor.Scene.WaitAndSettingForOwner.GameObject.Canvas.Panel.ModeToggle.Component.Script.GetModeToggle()
+
+// Access public members directly (no need to call GetModeToggle() first)
+ModeToggle.Mode currentMode = AssetAccessor.Scene.WaitAndSettingForOwner.GameObject.Canvas.Panel.ModeToggle.CurrentMode
+AssetAccessor.Scene.WaitAndSettingForOwner.GameObject.Canvas.Panel.ModeToggle.CurrentMode = ModeToggle.Mode.Expert
+```
+
+**Custom Script Member Parsing:**
+
+The generator scans custom script source files (`.cs` files in Assets directory) to extract:
+
+- **Public properties**: With both getters and setters (read-write properties)
+- **Public methods**: Excluding Unity lifecycle methods (Awake, Start, Update, etc.)
+- **Method parameters**: Including proper type resolution for nested types
+
+**Type Alias Handling:**
+
+To avoid name conflicts between GameObject names and script class names (e.g., a GameObject named "ModeToggle" with an attached "ModeToggle" script), the generator uses C# using aliases:
+
+```csharp
+// using PrefabScript<ClassName> = <ClassName>;
+using PrefabScriptModeToggle = ModeToggle;
+```
+
+This allows the generated code to reference both the GameObject accessor class and the script type without ambiguity. Nested types defined within custom scripts are automatically prefixed with the aliased class name (e.g., `Mode` becomes `PrefabScriptModeToggle.Mode`).
 
 **PrefabInstance Support:**
 
