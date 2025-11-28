@@ -147,8 +147,8 @@ public static partial class AssetAccessorGenerator
             _ = sb.AppendLine($"{indentStr}  public static {member.ReturnType} {member.Name}");
             _ = sb.AppendLine($"{indentStr}  {{");
             _ = sb.AppendLine($"{indentStr}    get {{ return Component.Script.Get{customScriptWithMembers.SafeName}().{member.Name}; }}");
-            // Check if it's a property with a setter (not a readonly field)
-            if (member.Type == MemberType.Property)
+            // Generate setter only if the property has one
+            if (member.HasSetter)
             {
               _ = sb.AppendLine($"{indentStr}    set {{ Component.Script.Get{customScriptWithMembers.SafeName}().{member.Name} = value; }}");
             }
@@ -727,7 +727,7 @@ public static partial class AssetAccessorGenerator
 
       // Parse public properties
       var propertyPattern = new Regex(
-        @"^\s*public\s+(?:(?:virtual|override|abstract)\s+)?([\w<>\[\]]+)\s+(\w+)\s*\{[^}]*get[^}]*\}",
+        @"^\s*public\s+(?:(?:virtual|override|abstract)\s+)?([\w<>\[\]]+)\s+(\w+)\s*\{([^}]*)\}",
         RegexOptions.Multiline
       );
       var propertyMatches = propertyPattern.Matches(scriptContent);
@@ -735,6 +735,14 @@ public static partial class AssetAccessorGenerator
       {
         var returnType = match.Groups[1].Value.Trim();
         var memberName = match.Groups[2].Value.Trim();
+        var propertyBody = match.Groups[3].Value.Trim();
+
+        // Check if property has a getter
+        if (!propertyBody.Contains("get")) continue;
+
+        // Check if property has a public/internal setter (not private or protected)
+        var hasSetter = propertyBody.Contains("set") &&
+                      !Regex.IsMatch(propertyBody, @"\b(private|protected)\s+set\b");
 
         // Skip if it's from a base class or if it's a private/protected setter property
         if (!string.IsNullOrEmpty(memberName))
@@ -746,7 +754,8 @@ public static partial class AssetAccessorGenerator
           {
             Name = memberName,
             ReturnType = resolvedType,
-            Type = MemberType.Property
+            Type = MemberType.Property,
+            HasSetter = hasSetter
           });
         }
       }
@@ -1132,6 +1141,7 @@ public static partial class AssetAccessorGenerator
       public string ReturnType { get; set; }
       public MemberType Type { get; set; }
       public List<ParameterInfo> Parameters { get; set; } = new List<ParameterInfo>();
+      public bool HasSetter { get; set; }
     }
 
     private class ParameterInfo
