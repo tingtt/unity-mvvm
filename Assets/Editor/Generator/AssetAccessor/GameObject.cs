@@ -760,6 +760,32 @@ public static partial class AssetAccessorGenerator
         }
       }
 
+      // Parse public readonly fields
+      var readonlyFieldPattern = new Regex(
+        @"^\s*public\s+(?:readonly\s+)([\w.<>\[\]]+)\s+(\w+)\s*(?:=|;)",
+        RegexOptions.Multiline
+      );
+      var readonlyFieldMatches = readonlyFieldPattern.Matches(scriptContent);
+      foreach (Match match in readonlyFieldMatches)
+      {
+        var fieldType = match.Groups[1].Value.Trim();
+        var fieldName = match.Groups[2].Value.Trim();
+
+        if (!string.IsNullOrEmpty(fieldName))
+        {
+          // Resolve type name for nested types
+          var resolvedType = ResolveTypeName(fieldType, scriptContent, scriptName);
+
+          componentInfo.CustomScriptMembers.Add(new ScriptMemberInfo
+          {
+            Name = fieldName,
+            ReturnType = resolvedType,
+            Type = MemberType.Field,
+            HasSetter = false
+          });
+        }
+      }
+
       // Parse public methods (excluding Unity lifecycle methods)
       var methodPattern = new Regex(
         @"^\s*public\s+(?:(?:virtual|override|abstract|async)\s+)?([\w<>\[\]]+)\s+(\w+)\s*\(([^)]*)\)",
