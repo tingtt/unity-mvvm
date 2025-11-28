@@ -336,9 +336,7 @@ public static partial class AssetAccessorGenerator
         var name = match.Groups[3].Value.Trim();
         var guid = match.Groups[4].Value.Trim();
         prefabInstances[prefabId] = (parentTransformId, name, guid);
-      }
-
-      // Parse stripped transforms from PrefabInstances
+      }      // Parse stripped transforms from PrefabInstances
       // Pattern: --- !u!224 &<transformId> stripped\nRectTransform:...\n  m_PrefabInstance: {fileID: <prefabId>}
       var strippedTransformPattern = new Regex(
         @"--- !u!(?:224|4) &(\d+) stripped\s+(?:RectTransform|Transform):.*?m_PrefabInstance: \{fileID: (\d+)\}",
@@ -500,7 +498,7 @@ public static partial class AssetAccessorGenerator
       // Parse MonoBehaviour components (UI components like Image, Button, Text, etc.)
       // Match both regular and stripped MonoBehaviour components
       var monoBehaviourPattern = new Regex(
-        @"--- !u!114 &\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
+        @"--- !u!114 &-?\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(-?\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
         RegexOptions.Singleline | RegexOptions.Multiline
       );
       var monoBehaviourMatches = monoBehaviourPattern.Matches(content);
@@ -1026,7 +1024,7 @@ public static partial class AssetAccessorGenerator
 
         // Parse MonoBehaviour components
         var monoBehaviourPattern = new Regex(
-          @"--- !u!114 &\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
+          @"--- !u!114 &-?\d+(?:\s+stripped)?\s+MonoBehaviour:.*?m_GameObject:\s*\{fileID:\s*(-?\d+)\}.*?m_EditorClassIdentifier:\s*(.+?)$",
           RegexOptions.Singleline | RegexOptions.Multiline
         );
         var monoBehaviourMatches = monoBehaviourPattern.Matches(prefabContent);
