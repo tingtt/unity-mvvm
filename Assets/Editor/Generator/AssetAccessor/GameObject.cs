@@ -725,7 +725,7 @@ public static partial class AssetAccessorGenerator
 
       // Parse public properties
       var propertyPattern = new Regex(
-        @"^\s*public\s+(?:(?:virtual|override|abstract)\s+)?([\w<>\[\]]+)\s+(\w+)\s*\{([^}]*)\}",
+        @"^\s*public\s+(?:(?:virtual|override|abstract)\s+)?([\w<>\[\],\(\)\s]+)\s+(\w+)\s*\{([^}]*)\}",
         RegexOptions.Multiline
       );
       var propertyMatches = propertyPattern.Matches(scriptContent);
