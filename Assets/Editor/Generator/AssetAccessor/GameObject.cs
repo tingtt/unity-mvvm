@@ -691,6 +691,13 @@ public static partial class AssetAccessorGenerator
 
     private static string ResolveTypeName(string typeName, string scriptContent, string className)
     {
+      // If the type already contains a dot (qualified name like RoomContext.Mode), keep it as-is
+      // This handles external class references
+      if (typeName.Contains("."))
+      {
+        return typeName;
+      }
+
       // Check if the type is defined within the same class (nested type)
       // Look for enum, class, struct, or interface definitions
       var nestedTypePattern = new Regex(
@@ -725,7 +732,7 @@ public static partial class AssetAccessorGenerator
 
       // Parse public properties
       var propertyPattern = new Regex(
-        @"^\s*public\s+(?:(?:virtual|override|abstract)\s+)?([\w<>\[\],\(\)\s]+)\s+(\w+)\s*\{([^}]*)\}",
+        @"^\s*public\s+(?:(?:virtual|override|abstract)\s+)?([\w.<>\[\],\(\)\s]+)\s+(\w+)\s*\{([^}]*)\}",
         RegexOptions.Multiline
       );
       var propertyMatches = propertyPattern.Matches(scriptContent);
@@ -786,7 +793,7 @@ public static partial class AssetAccessorGenerator
 
       // Parse public methods (excluding Unity lifecycle methods)
       var methodPattern = new Regex(
-        @"^\s*public\s+(?:(?:virtual|override|abstract|async)\s+)?([\w<>\[\]]+)\s+(\w+)\s*\(([^)]*)\)",
+        @"^\s*public\s+(?:(?:virtual|override|abstract|async)\s+)?([\w.<>\[\]]+)\s+(\w+)\s*\(([^)]*)\)",
         RegexOptions.Multiline
       );
       var methodMatches = methodPattern.Matches(scriptContent);
@@ -818,7 +825,7 @@ public static partial class AssetAccessorGenerator
             if (string.IsNullOrEmpty(trimmed)) continue;
 
             // Parse parameter (format: "Type name" or "Type name = default")
-            var paramMatch = Regex.Match(trimmed, @"([\w<>\[\]]+)\s+(\w+)");
+            var paramMatch = Regex.Match(trimmed, @"([\w.<>\[\]]+)\s+(\w+)");
             if (paramMatch.Success)
             {
               var paramType = paramMatch.Groups[1].Value.Trim();
