@@ -10,7 +10,10 @@ UNITY_PATH_WIN ?= C:\Program Files\Unity\Hub\Editor\$(UNITY_VERSION)\Editor\Unit
 PROJECT_PATH ?= $(CURDIR)
 
 # Solution path (for dotnet format)
-SOLUTION_PATH ?= unity-mvvm.slnx
+# The .slnx file is environment-specific and ignored in version control,
+# as Unity regenerates it as <folder-name>.slnx.
+# Therefore, we need to dynamically find it, especially in CI environments.
+SOLUTION_PATH ?= $(shell find $(PROJECT_PATH) -maxdepth 1 -name "*.slnx" -print -quit)
 
 # Execute Tool Method
 EXECUTE_METHOD_REFRESH ?= Refresh.Run
