@@ -861,8 +861,20 @@ public static partial class AssetAccessorGenerator
 
     private static void LoadPrefabComponents(List<GameObjectInfo> gameObjects, string sceneDir)
     {
-      // Get the Assets directory path
-      var assetsPath = Path.GetFullPath(Path.Combine(sceneDir, "..", ".."));
+      // Get the Assets directory path - find the root Assets directory
+      var assetsPath = sceneDir;
+      while (!string.IsNullOrEmpty(assetsPath) && Path.GetFileName(assetsPath) != "Assets")
+      {
+        assetsPath = Path.GetDirectoryName(assetsPath);
+      }
+
+      if (string.IsNullOrEmpty(assetsPath) || Path.GetFileName(assetsPath) != "Assets")
+      {
+        Console.WriteLine($"[AssetAccessorGenerator.GameObjectAccessor] Could not find Assets directory from {sceneDir}");
+        return;
+      }
+
+      assetsPath = Path.GetFullPath(assetsPath);
 
       // Create a list of prefab children to add after iteration
       var prefabChildrenToAdd = new List<GameObjectInfo>();
