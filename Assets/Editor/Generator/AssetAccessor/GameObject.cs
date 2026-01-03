@@ -645,38 +645,38 @@ public static partial class AssetAccessorGenerator
     private static List<string> GenerateCustomScriptAliases(List<GameObjectInfo> gameObjects)
     {
       var aliases = new List<string>();
-      var customScripts = new HashSet<string>();
-      var scriptCounts = new Dictionary<string, int>();
+      var addedAliases = new HashSet<string>();
 
-      // Collect all custom scripts and count occurrences
-      foreach (var go in gameObjects)
+      foreach (var component in gameObjects.SelectMany(go => go.Components).Where(c => c.IsCustomScript))
       {
-        foreach (var component in go.Components.Where(c => c.IsCustomScript))
+        var componentNamespace = GetNamespaceFromType(component.TypeFullName);
+
+        // Alias for the script class itself
+        var scriptAlias = GetScriptAlias(component.TypeFullName);
+        if (addedAliases.Add(scriptAlias))
         {
-          if (!scriptCounts.ContainsKey(component.TypeFullName))
+          aliases.Add($"using {scriptAlias} = {component.TypeFullName};");
+        }
+
+        // Alias for file-level types (e.g., enums) declared in the same script file
+        var scriptName = component.TypeFullName.Split('.').Last();
+        var scriptPaths = Directory.GetFiles("Assets", $"{scriptName}.cs", SearchOption.AllDirectories);
+        if (scriptPaths.Length == 0)
+        {
+          continue;
+        }
+
+        var scriptContent = File.ReadAllText(scriptPaths[0]);
+        var fileLevelTypes = GetFileLevelTypes(scriptContent, scriptName);
+
+        foreach (var typeName in fileLevelTypes)
+        {
+          var qualifiedTypeName = string.IsNullOrEmpty(componentNamespace) ? typeName : $"{componentNamespace}.{typeName}";
+          var alias = GetScriptAlias(qualifiedTypeName);
+          if (addedAliases.Add(alias))
           {
-            scriptCounts[component.TypeFullName] = 0;
+            aliases.Add($"using {alias} = {qualifiedTypeName};");
           }
-
-          scriptCounts[component.TypeFullName]++;
-        }
-      }
-
-      // Generate aliases for scripts that appear multiple times or have conflicting names
-      foreach (var kvp in scriptCounts)
-      {
-        var scriptName = kvp.Key;
-        var count = kvp.Value;
-
-        if (count > 1)
-        {
-          // Multiple instances: use _<originalClassName> suffix
-          aliases.Add($"using PrefabScript{scriptName}_{scriptName} = {scriptName};");
-        }
-        else
-        {
-          // Single instance: use simple alias
-          aliases.Add($"using PrefabScript{scriptName} = {scriptName};");
         }
       }
 
@@ -685,17 +685,38 @@ public static partial class AssetAccessorGenerator
 
     private static string GetScriptAlias(string scriptTypeName)
     {
-      // Return the alias name for a script type
-      return $"PrefabScript{scriptTypeName}";
+      // Return the alias name for a script type (sanitize namespace separators)
+      var safeName = scriptTypeName.Replace('.', '_');
+      return $"PrefabScript{safeName}";
     }
 
-    private static string ResolveTypeName(string typeName, string scriptContent, string className)
+    private static string GetNamespaceFromType(string typeFullName)
+    {
+      var lastDot = typeFullName.LastIndexOf('.');
+      return lastDot > 0 ? typeFullName[..lastDot] : string.Empty;
+    }
+
+    private static string ResolveTypeName(string typeName, string scriptContent, string scriptTypeFullName, string scriptNamespace, HashSet<string> fileLevelTypes)
     {
       // If the type already contains a dot (qualified name like RoomContext.Mode), keep it as-is
       // This handles external class references
       if (typeName.Contains("."))
       {
         return typeName;
+      }
+
+      // Avoid conflicts with the generated GameObject class name
+      if (typeName == nameof(UnityEngine.GameObject))
+      {
+        return "UnityEngine.GameObject";
+      }
+
+      // Check file-level types first (higher priority than nested types)
+      // File-level enums/types should use their standalone alias
+      if (fileLevelTypes != null && fileLevelTypes.Contains(typeName))
+      {
+        var qualifiedTypeName = string.IsNullOrEmpty(scriptNamespace) ? typeName : $"{scriptNamespace}.{typeName}";
+        return GetScriptAlias(qualifiedTypeName);
       }
 
       // Check if the type is defined within the same class (nested type)
@@ -708,7 +729,7 @@ public static partial class AssetAccessorGenerator
       if (nestedTypePattern.IsMatch(scriptContent))
       {
         // It's a nested type, prepend the class name with alias
-        return $"{GetScriptAlias(className)}.{typeName}";
+        return $"{GetScriptAlias(scriptTypeFullName)}.{typeName}";
       }
 
       // Otherwise, return the type as-is (it's either a built-in type or from another namespace)
@@ -729,6 +750,8 @@ public static partial class AssetAccessorGenerator
 
       var scriptPath = scriptPaths[0];
       var scriptContent = File.ReadAllText(scriptPath);
+      var fileLevelTypes = GetFileLevelTypes(scriptContent, scriptName);
+      var scriptNamespace = GetNamespaceFromType(componentInfo.TypeFullName);
 
       // Parse public properties
       var propertyPattern = new Regex(
@@ -753,7 +776,7 @@ public static partial class AssetAccessorGenerator
         if (!string.IsNullOrEmpty(memberName))
         {
           // Resolve type name for nested types
-          var resolvedType = ResolveTypeName(returnType, scriptContent, scriptName);
+          var resolvedType = ResolveTypeName(returnType, scriptContent, componentInfo.TypeFullName, scriptNamespace, fileLevelTypes);
 
           componentInfo.CustomScriptMembers.Add(new ScriptMemberInfo
           {
@@ -779,7 +802,7 @@ public static partial class AssetAccessorGenerator
         if (!string.IsNullOrEmpty(fieldName))
         {
           // Resolve type name for nested types
-          var resolvedType = ResolveTypeName(fieldType, scriptContent, scriptName);
+          var resolvedType = ResolveTypeName(fieldType, scriptContent, componentInfo.TypeFullName, scriptNamespace, fileLevelTypes);
 
           componentInfo.CustomScriptMembers.Add(new ScriptMemberInfo
           {
@@ -832,7 +855,7 @@ public static partial class AssetAccessorGenerator
               var paramName = paramMatch.Groups[2].Value.Trim();
 
               // Resolve parameter type name for nested types
-              var resolvedParamType = ResolveTypeName(paramType, scriptContent, scriptName);
+              var resolvedParamType = ResolveTypeName(paramType, scriptContent, componentInfo.TypeFullName, scriptNamespace, fileLevelTypes);
 
               parameters.Add(new ParameterInfo
               {
@@ -846,7 +869,7 @@ public static partial class AssetAccessorGenerator
         if (!string.IsNullOrEmpty(memberName))
         {
           // Resolve return type name for nested types
-          var resolvedReturnType = ResolveTypeName(returnType, scriptContent, scriptName);
+          var resolvedReturnType = ResolveTypeName(returnType, scriptContent, componentInfo.TypeFullName, scriptNamespace, fileLevelTypes);
 
           componentInfo.CustomScriptMembers.Add(new ScriptMemberInfo
           {
@@ -857,6 +880,30 @@ public static partial class AssetAccessorGenerator
           });
         }
       }
+    }
+
+    private static HashSet<string> GetFileLevelTypes(string scriptContent, string className)
+    {
+      var types = new HashSet<string>();
+
+      // Only consider type declarations that appear before the main class declaration
+      var classMatch = Regex.Match(scriptContent, $@"\bclass\s+{Regex.Escape(className)}\b");
+      var searchLength = classMatch.Success ? classMatch.Index : scriptContent.Length;
+      var headerContent = scriptContent[..searchLength];
+
+      var typePattern = new Regex(@"^\s*(?:public|internal|private|protected|static|sealed|partial|\s)*\b(enum|class|struct|interface)\s+(\w+)", RegexOptions.Multiline);
+      var matches = typePattern.Matches(headerContent);
+
+      foreach (Match match in matches)
+      {
+        var typeName = match.Groups[2].Value;
+        if (!string.Equals(typeName, className, StringComparison.Ordinal))
+        {
+          _ = types.Add(typeName);
+        }
+      }
+
+      return types;
     }
 
     private static void LoadPrefabComponents(List<GameObjectInfo> gameObjects, string sceneDir)
