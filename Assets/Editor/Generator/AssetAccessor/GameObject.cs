@@ -711,13 +711,13 @@ public static partial class AssetAccessorGenerator
 
         // Alias for file-level types (e.g., enums) declared in the same script file
         var scriptName = component.TypeFullName.Split('.').Last();
-        var scriptPaths = Directory.GetFiles("Assets", $"{scriptName}.cs", SearchOption.AllDirectories);
-        if (scriptPaths.Length == 0)
+        var scriptPath = FindCustomScriptPath(scriptName);
+        if (string.IsNullOrEmpty(scriptPath))
         {
           continue;
         }
 
-        var scriptContent = File.ReadAllText(scriptPaths[0]);
+        var scriptContent = File.ReadAllText(scriptPath);
         var fileLevelTypes = GetFileLevelTypes(scriptContent, scriptName);
 
         foreach (var typeName in fileLevelTypes)
@@ -747,10 +747,10 @@ public static partial class AssetAccessorGenerator
         var scriptName = component.TypeFullName.Split('.').Last();
         if (!processedScripts.Add(scriptName)) continue;
 
-        var scriptPaths = Directory.GetFiles("Assets", $"{scriptName}.cs", SearchOption.AllDirectories);
-        if (scriptPaths.Length == 0) continue;
+        var scriptPath = FindCustomScriptPath(scriptName);
+        if (string.IsNullOrEmpty(scriptPath)) continue;
 
-        var scriptContent = File.ReadAllText(scriptPaths[0]);
+        var scriptContent = File.ReadAllText(scriptPath);
 
         // Collect plain namespace imports
         foreach (Match match in usingPattern.Matches(scriptContent))
@@ -849,15 +849,13 @@ public static partial class AssetAccessorGenerator
     {
       // Find the script file in the Assets folder
       var scriptName = componentInfo.TypeFullName.Split('.').Last();
-      var scriptPaths = Directory.GetFiles("Assets", $"{scriptName}.cs", SearchOption.AllDirectories);
-
-      if (scriptPaths.Length == 0)
+      var scriptPath = FindCustomScriptPath(scriptName);
+      if (string.IsNullOrEmpty(scriptPath))
       {
         Console.WriteLine($"[AssetAccessorGenerator.GameObjectAccessor] Script file not found for: {scriptName}");
         return;
       }
 
-      var scriptPath = scriptPaths[0];
       var scriptContent = File.ReadAllText(scriptPath);
       var fileLevelTypes = GetFileLevelTypes(scriptContent, scriptName);
       var scriptNamespace = GetNamespaceFromType(componentInfo.TypeFullName);
@@ -1019,6 +1017,23 @@ public static partial class AssetAccessorGenerator
       }
 
       return types;
+    }
+
+    private static string FindCustomScriptPath(string scriptName)
+    {
+      var scriptPaths = Directory.GetFiles("Assets", $"{scriptName}.cs", SearchOption.AllDirectories)
+        .Where(path => !IsGeneratedAssetAccessorPath(path))
+        .OrderBy(path => path, StringComparer.Ordinal)
+        .ToArray();
+
+      return scriptPaths.FirstOrDefault();
+    }
+
+    private static bool IsGeneratedAssetAccessorPath(string path)
+    {
+      var normalizedPath = path.Replace('\\', '/');
+      return normalizedPath.StartsWith("Assets/Generated/AssetAccessor/", StringComparison.Ordinal) ||
+        normalizedPath.Contains("/Assets/Generated/AssetAccessor/", StringComparison.Ordinal);
     }
 
     private static void LoadPrefabComponents(List<GameObjectInfo> gameObjects, string sceneDir)
